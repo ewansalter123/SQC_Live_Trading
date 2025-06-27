@@ -7,7 +7,6 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from backtest_config import get_pip_value, strategy_params
 from mt5_interface import MT5Interface
 from data_preprocessing import *
 from trade import Trade
@@ -67,7 +66,7 @@ parameters = statistical_grid_GBPNZD_H1_PO_BEST_MAX_DD.copy()
 # ---------------------------------------------
 mt5_int = MT5Interface(broker="icmarkets")
 
-logger.info(f"{symbol} pip value: {get_pip_value(symbol)}")
+logger.info(f"{symbol} pip value: {mt5_int.get_pip_value(symbol)}")
 
 account_info = mt5.account_info()
 if account_info:
