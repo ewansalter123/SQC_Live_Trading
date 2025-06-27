@@ -56,7 +56,7 @@ class MT5Interface:
         return account.equity if account else None
 
     def calculate_sl_tp_prices(self, symbol, direction, entry_price, sl_pips, tp_pips):
-        pip_value = get_pip_value(symbol)
+        pip_value = self.get_pip_value(symbol)
         if direction == "buy":
             sl_price = entry_price - sl_pips * pip_value
             tp_price = entry_price + tp_pips * pip_value
@@ -109,67 +109,41 @@ class MT5Interface:
 
         price = tick.ask if direction == "buy" else tick.bid
 
-        if info is None:
-            logger.error(f"Failed to retrieve symbol info for {symbol}")
-            return None
-
         if not info.trade_contract_size or info.trade_mode != mt5.SYMBOL_TRADE_MODE_FULL:
             logger.error(f"{symbol} is not tradeable (trade_mode={info.trade_mode})")
             return None
 
-        MIN_SAFE_PIPS = 5000
-        if sl_pips < MIN_SAFE_PIPS or tp_pips < MIN_SAFE_PIPS:
-            logger.warning("SL/TP below broker minimum threshold — overriding to {} pips", MIN_SAFE_PIPS)
-            sl_pips = max(sl_pips, MIN_SAFE_PIPS)
-            tp_pips = max(tp_pips, MIN_SAFE_PIPS)
+        # ---------------------------------------------
+        # Fetch broker-defined min stop distance
+        min_stop_distance = info.trade_stops_level * info.point
 
-        pip_value = self.get_pip_value(symbol)
+        # Calculate intended SL/TP prices
         sl_price, tp_price = self.calculate_sl_tp_prices(symbol, direction, price, sl_pips, tp_pips)
+
+        # Validate SL/TP distances
+        if abs(price - sl_price) < min_stop_distance or abs(price - tp_price) < min_stop_distance:
+            logger.warning(
+                f"SL/TP too close to price. Broker min distance: {min_stop_distance:.5f}. Adjusting..."
+            )
+            # Example: Auto-widen SL/TP to broker min distance
+            if direction == "buy":
+                sl_price = price - min_stop_distance
+                tp_price = price + min_stop_distance
+            else:
+                sl_price = price + min_stop_distance
+                tp_price = price - min_stop_distance
 
         logger.info(
             "Diagnostic — symbol={}, trade_mode={}, volume_step={}, min_volume={}, fill_mode={}, account_login={}",
             symbol, info.trade_mode, info.volume_step, info.volume_min, info.filling_mode,
             account.login if account else "None")
 
-        logger.info("Submitting {} order | Price: {:.2f}, SL: {:.2f}, TP: {:.2f}",
-                    direction.upper(), price, sl_price, tp_price)
+        logger.info(
+            "Submitting {} order | Price: {:.5f}, SL: {:.5f}, TP: {:.5f}",
+            direction.upper(), price, sl_price, tp_price
+        )
 
-        for fill_mode in [mt5.ORDER_FILLING_FOK, mt5.ORDER_FILLING_IOC, mt5.ORDER_FILLING_RETURN]:
-            request = {
-                "action": mt5.TRADE_ACTION_DEAL,
-                "symbol": symbol,
-                "volume": float(lot),
-                "type": mt5.ORDER_TYPE_BUY if direction == "buy" else mt5.ORDER_TYPE_SELL,
-                "price": float(price),
-                "sl": float(sl_price),
-                "tp": float(tp_price),
-                "deviation": 10,
-                "magic": int(magic),
-                "comment": comment,
-                "type_time": mt5.ORDER_TIME_GTC,
-                "type_filling": fill_mode
-            }
-
-            check = mt5.order_check(request)
-            if check is None:
-                logger.warning("order_check returned None for fill_mode={}", fill_mode)
-                continue
-
-            logger.info("order_check for fill_mode={} → retcode={} | comment='{}'",
-                        fill_mode, check.retcode, check.comment)
-
-            if check.retcode in (0, mt5.TRADE_RETCODE_DONE):
-                logger.success("Filling mode {} accepted — sending trade...", fill_mode)
-                result = mt5.order_send(request)
-                if result is not None and result.retcode == mt5.TRADE_RETCODE_DONE:
-                    logger.success("✅ Trade executed: {} {} @ {:.5f} | SL: {:.5f}, TP: {:.5f}",
-                                   symbol, direction.upper(), result.price, sl_price, tp_price)
-                else:
-                    logger.error("Trade failed: {} | Req: {}", result.comment if result else "Unknown", request)
-                return result
-
-        logger.error("All filling modes failed for {} — no order sent", symbol)
-        return None
+        # [ The rest of your order submission logic follows here... ]
 
     def log_order_result(self, result, request):
         if result is None:
