@@ -22,9 +22,9 @@ logger.add(sys.stderr, level="INFO")
 # CONFIGURATION (set these variables externally)
 # ---------------------------------------------
 symbol = "GBPNZD"
-timeframe_str = "H1"
+timeframe_str = "M1"
 lot = 1
-magic = 8989891
+magic = 44667732
 # parameters = strategy_params["Statistical_Grid"].copy()
 #get parameter set from the json!!!!! But could be deleted so creating a back up commented below: 39755a57-4ca5-46df-940a-c492c990e760
 statistical_grid_GBPNZD_H1_PO_BEST_MAX_DD = {
