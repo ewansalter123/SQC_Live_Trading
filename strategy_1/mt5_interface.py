@@ -150,7 +150,42 @@ class MT5Interface:
             direction.upper(), price, sl_price, tp_price
         )
 
-        # [ The rest of your order submission logic follows here... ]
+        for fill_mode in [mt5.ORDER_FILLING_FOK, mt5.ORDER_FILLING_IOC, mt5.ORDER_FILLING_RETURN]:
+            request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": symbol,
+                "volume": float(lot),
+                "type": mt5.ORDER_TYPE_BUY if direction == "buy" else mt5.ORDER_TYPE_SELL,
+                "price": float(price),
+                "sl": float(sl_price),
+                "tp": float(tp_price),
+                "deviation": 10,
+                "magic": int(magic),
+                "comment": comment,
+                "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": fill_mode
+            }
+
+            check = mt5.order_check(request)
+            if check is None:
+                logger.warning("order_check returned None for fill_mode={}", fill_mode)
+                continue
+
+            logger.info("order_check for fill_mode={} → retcode={} | comment='{}'",
+                        fill_mode, check.retcode, check.comment)
+
+            if check.retcode in (0, mt5.TRADE_RETCODE_DONE):
+                logger.success("Filling mode {} accepted — sending trade...", fill_mode)
+                result = mt5.order_send(request)
+                if result is not None and result.retcode == mt5.TRADE_RETCODE_DONE:
+                    logger.success("✅ Trade executed: {} {} @ {:.5f} | SL: {:.5f}, TP: {:.5f}",
+                                   symbol, direction.upper(), result.price, sl_price, tp_price)
+                else:
+                    logger.error("Trade failed: {} | Req: {}", result.comment if result else "Unknown", request)
+                return result
+
+        logger.error("All filling modes failed for {} — no order sent", symbol)
+        return None
 
     def log_order_result(self, result, request):
         if result is None:
