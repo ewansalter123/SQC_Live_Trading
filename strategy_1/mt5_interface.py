@@ -74,19 +74,14 @@ class MT5Interface:
             logger.error(f"Failed to retrieve symbol info for {symbol}")
             return 0.0
 
-        contract_size = info.trade_contract_size
-        point_size = info.point
-
-        if contract_size <= 0 or point_size <= 0:
-            logger.error(
-                f"Invalid contract size or point for {symbol}: contract_size={contract_size}, point={point_size}")
+        if info.trade_tick_value <= 0 or info.trade_tick_size <= 0:
+            logger.error(f"Invalid tick value or size for {symbol}")
             return 0.0
 
-        # Standard pip value = 10 points
-        pip_value = contract_size * point_size * 10
+        pip_value = info.trade_tick_value * (0.0001 / info.trade_tick_size)
 
-        logger.info(f"Pip value for {symbol}: {pip_value:.5f} (Contract size: {contract_size}, Point: {point_size})")
-
+        logger.info(
+            f"Pip value for {symbol}: {pip_value:.5f} (Tick Value: {info.trade_tick_value}, Tick Size: {info.trade_tick_size})")
         return pip_value
 
     def get_last_closed_candle(self, symbol: str, timeframe):
@@ -232,3 +227,34 @@ class MT5Interface:
 
     def update_trailing_stop(self, ticket, symbol, new_sl):
         return self.modify_stop_loss(ticket, new_sl, symbol)
+
+    def calculate_lot_size(self, symbol, sl_pips, account_size, risk_per_trade):
+        """
+        Calculates dynamic lot size based on SL distance, account size, and broker pip value.
+        """
+        info = mt5.symbol_info(symbol)
+        if not info:
+            logger.error(f"Failed to get symbol info for {symbol}")
+            return 0.01  # Fallback to min lot
+
+        min_lot = info.volume_min
+        max_lot = info.volume_max
+        step = info.volume_step
+
+        pip_value = self.get_pip_value(symbol)
+        if pip_value <= 0:
+            logger.error(f"Invalid pip value for {symbol}")
+            return min_lot
+
+        # Total cash risk allowed per trade
+        cash_risk = account_size * risk_per_trade
+
+        # Lot size formula: Lot = Cash Risk / (SL pips * pip value per lot)
+        raw_lot = cash_risk / (sl_pips * pip_value)
+
+        # Snap to broker step size and respect lot limits
+        snapped_lot = round(max(min_lot, min(max_lot, round(raw_lot / step) * step)), 2)
+
+        logger.info(
+            f"Calculated lot size for {symbol}: {snapped_lot} (Raw: {raw_lot:.4f}, Min: {min_lot}, Max: {max_lot})")
+        return snapped_lot
