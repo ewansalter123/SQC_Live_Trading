@@ -15,13 +15,14 @@ import gc
 ######################################
 #        INTERNAL REQUIREMENTS       #
 ######################################
-from Quant_Backend.backtest_config import (
-    strategy_params, IN_SAMPLE_START, IN_SAMPLE_END,
-    get_pip_value, find_price_file, load_data,
-    get_safe_n_jobs, DATA_DIR
-)
-from Quant_Backend.data_preprocessing import *
-from Quant_Backend.trade import Trade
+# from Quant_Backend.backtest_config import (
+#     strategy_params, IN_SAMPLE_START, IN_SAMPLE_END,
+#     get_pip_value, find_price_file, load_data,
+#     get_safe_n_jobs, DATA_DIR
+# )
+from data_preprocessing import *
+from trade import Trade
+from mt5_interface import *
 
 from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]  # Root directory of project
@@ -29,8 +30,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]  # Root directory of project
 ######################################
 #        GLOBAL CONFIGURATION        #
 ######################################
-params = strategy_params["Statistical_Grid"]  #  Replace with your actual strategy key
-strat_name = next(name for name, p in strategy_params.items() if p is params)
+# params = strategy_params["Statistical_Grid"]  #  Replace with your actual strategy key
+# strat_name = next(name for name, p in strategy_params.items() if p is params)
+# parameters["pip_value"] = mt5_int.get_pip_value(symbol)
 
 ######################################
 #          STRATEGY CLASS            #
@@ -93,7 +95,7 @@ class StrategyTester:
         #         RISK & SL/TP SETTINGS      #
         ######################################
         symbol = self.parameters.get("symbol")
-        self.pip_value = get_pip_value(symbol) or get_pip_value(asset)
+        self.pip_value = parameters.get("pip_value")
         logger.debug(f"[DEBUG INIT] Asset: {symbol} | Pip Value: {self.pip_value}")
         self.tp_pips = parameters["tp"]
         self.sl_pips = parameters["sl"]
