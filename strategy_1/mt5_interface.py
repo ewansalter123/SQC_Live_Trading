@@ -1,0 +1,236 @@
+import MetaTrader5 as mt5
+from datetime import datetime
+from loguru import logger
+import sys
+import os
+import pandas as pd
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+logger.remove()
+logger.add(sys.stderr, level="INFO")
+
+from Quant_Backend.backtest_config import get_pip_value
+
+# Define known terminal paths (customize as needed)
+MT5_PATHS = {
+    "metaquotes": r"C:\\Program Files\\MetaTrader 5\\terminal64.exe",
+    "icmarkets": r"C:\\Program Files\\MetaTrader 5 IC Markets Global\\terminal64.exe",
+}
+
+
+class MT5Interface:
+    def __init__(self, broker: str = "metaquotes"):
+        self.broker = broker
+        # self.application = application
+        self.initialized = False
+        self.initialize_mt5()
+
+    def initialize_mt5(self):
+        path = MT5_PATHS.get(self.broker.lower())
+        if not path:
+            raise ValueError(f"Unknown broker '{self.broker}'. Available: {list(MT5_PATHS.keys())}")
+
+        if not mt5.initialize(path=path):
+            logger.error("MT5 initialization failed for {}: {}", self.broker, mt5.last_error())
+            raise ConnectionError(f"Failed to initialize MetaTrader5 for {self.broker}")
+
+        logger.info("MT5 initialized successfully for {}", self.broker)
+        self.initialized = True
+
+    def get_open_positions(self, symbol=None, magic=None):
+
+        positions = mt5.positions_get()
+        if positions is None:
+            return []
+
+        filtered = []
+        for pos in positions:
+            pos_dict = pos._asdict()
+            if symbol and pos_dict['symbol'] != symbol:
+                continue
+            if magic and pos_dict['magic'] != magic:
+                continue
+            filtered.append(pos_dict)
+        return filtered
+
+    def get_account_equity(self):
+        account = mt5.account_info()
+        return account.equity if account else None
+
+    def calculate_sl_tp_prices(self, symbol, direction, entry_price, sl_pips, tp_pips):
+        pip_value = get_pip_value(symbol)
+        if direction == "buy":
+            sl_price = entry_price - sl_pips * pip_value
+            tp_price = entry_price + tp_pips * pip_value
+        else:
+            sl_price = entry_price + sl_pips * pip_value
+            tp_price = entry_price - tp_pips * pip_value
+        return sl_price, tp_price
+
+    def get_pip_value(self, symbol: str) -> float:
+        """
+        Returns the pip value in quote currency per lot, based on MT5 symbol info.
+        """
+        info = mt5.symbol_info(symbol)
+        if not info:
+            logger.error(f"Failed to retrieve symbol info for {symbol}")
+            return 0.0
+
+        contract_size = info.trade_contract_size
+        point_size = info.point
+
+        if contract_size <= 0 or point_size <= 0:
+            logger.error(
+                f"Invalid contract size or point for {symbol}: contract_size={contract_size}, point={point_size}")
+            return 0.0
+
+        # Standard pip value = 10 points
+        pip_value = contract_size * point_size * 10
+
+        logger.info(f"Pip value for {symbol}: {pip_value:.5f} (Contract size: {contract_size}, Point: {point_size})")
+
+        return pip_value
+
+    def get_last_closed_candle(self, symbol: str, timeframe):
+        rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, 2)
+        if rates is None or len(rates) < 2:
+            return None
+        df = pd.DataFrame(rates)
+        df["time"] = pd.to_datetime(df["time"], unit="s")
+        df.set_index("time", inplace=True)
+        return df.iloc[-2]
+
+    def is_symbol_tradeable(self, symbol: str) -> bool:
+        info = mt5.symbol_info(symbol)
+        return info is not None and info.trade_mode == mt5.SYMBOL_TRADE_MODE_FULL
+
+    def submit_order(self, symbol, direction, lot, sl_pips, tp_pips, magic, comment="LiveTrade"):
+        mt5.symbol_select(symbol, True)
+        tick = mt5.symbol_info_tick(symbol)
+        info = mt5.symbol_info(symbol)
+        account = mt5.account_info()
+
+        if not tick or not info:
+            logger.error(f"Failed to retrieve tick data for {symbol}")
+            return None
+
+        price = tick.ask if direction == "buy" else tick.bid
+
+        if info is None:
+            logger.error(f"Failed to retrieve symbol info for {symbol}")
+            return None
+
+        if not info.trade_contract_size or info.trade_mode != mt5.SYMBOL_TRADE_MODE_FULL:
+            logger.error(f"{symbol} is not tradeable (trade_mode={info.trade_mode})")
+            return None
+
+        MIN_SAFE_PIPS = 5000
+        if sl_pips < MIN_SAFE_PIPS or tp_pips < MIN_SAFE_PIPS:
+            logger.warning("SL/TP below broker minimum threshold — overriding to {} pips", MIN_SAFE_PIPS)
+            sl_pips = max(sl_pips, MIN_SAFE_PIPS)
+            tp_pips = max(tp_pips, MIN_SAFE_PIPS)
+
+        pip_value = get_pip_value(symbol)
+        sl_price, tp_price = self.calculate_sl_tp_prices(symbol, direction, price, sl_pips, tp_pips)
+
+        logger.info(
+            "Diagnostic — symbol={}, trade_mode={}, volume_step={}, min_volume={}, fill_mode={}, account_login={}",
+            symbol, info.trade_mode, info.volume_step, info.volume_min, info.filling_mode,
+            account.login if account else "None")
+
+        logger.info("Submitting {} order | Price: {:.2f}, SL: {:.2f}, TP: {:.2f}",
+                    direction.upper(), price, sl_price, tp_price)
+
+        for fill_mode in [mt5.ORDER_FILLING_FOK, mt5.ORDER_FILLING_IOC, mt5.ORDER_FILLING_RETURN]:
+            request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": symbol,
+                "volume": float(lot),
+                "type": mt5.ORDER_TYPE_BUY if direction == "buy" else mt5.ORDER_TYPE_SELL,
+                "price": float(price),
+                "sl": float(sl_price),
+                "tp": float(tp_price),
+                "deviation": 10,
+                "magic": int(magic),
+                "comment": comment,
+                "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": fill_mode
+            }
+
+            check = mt5.order_check(request)
+            if check is None:
+                logger.warning("order_check returned None for fill_mode={}", fill_mode)
+                continue
+
+            logger.info("order_check for fill_mode={} → retcode={} | comment='{}'",
+                        fill_mode, check.retcode, check.comment)
+
+            if check.retcode in (0, mt5.TRADE_RETCODE_DONE):
+                logger.success("Filling mode {} accepted — sending trade...", fill_mode)
+                result = mt5.order_send(request)
+                if result is not None and result.retcode == mt5.TRADE_RETCODE_DONE:
+                    logger.success("✅ Trade executed: {} {} @ {:.5f} | SL: {:.5f}, TP: {:.5f}",
+                                   symbol, direction.upper(), result.price, sl_price, tp_price)
+                else:
+                    logger.error("Trade failed: {} | Req: {}", result.comment if result else "Unknown", request)
+                return result
+
+        logger.error("All filling modes failed for {} — no order sent", symbol)
+        return None
+
+    def log_order_result(self, result, request):
+        if result is None:
+            logger.error("order_send() returned None — trade was not submitted. Request: {}", request)
+            return
+
+        if result.retcode != mt5.TRADE_RETCODE_DONE:
+            logger.error("Trade failed: {} | Req: {}", result.comment, request)
+        else:
+            logger.success("Trade executed: {} {} @ {:.5f} | SL: {:.5f}, TP: {:.5f}",
+                           request["symbol"],
+                           "BUY" if request["type"] == mt5.ORDER_TYPE_BUY else "SELL",
+                           request["price"], request["sl"], request["tp"])
+
+    def modify_stop_loss(self, ticket, new_sl, symbol):
+        request = {
+            "action": mt5.TRADE_ACTION_SLTP,
+            "position": ticket,
+            "symbol": symbol,
+            "sl": new_sl,
+            "tp": 0.0
+        }
+        result = mt5.order_send(request)
+        if result.retcode != mt5.TRADE_RETCODE_DONE:
+            logger.error("SL modification failed: {}", result.comment)
+        else:
+            logger.info("SL modified for ticket {} to {:.5f}", ticket, new_sl)
+        return result
+
+    def close_position(self, ticket, symbol, volume, direction):
+        tick = mt5.symbol_info_tick(symbol)
+        price = tick.bid if direction == "buy" else tick.ask
+        close_type = mt5.ORDER_TYPE_SELL if direction == "buy" else mt5.ORDER_TYPE_BUY
+
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": symbol,
+            "position": ticket,
+            "volume": volume,
+            "type": close_type,
+            "price": price,
+            "deviation": 10,
+            "magic": 0,
+            "comment": "ManualClose",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+
+        result = mt5.order_send(request)
+        if result.retcode != mt5.TRADE_RETCODE_DONE:
+            logger.error("Close position failed: {}", result.comment)
+        else:
+            logger.success("Position closed: ticket {} at {:.5f}", ticket, price)
+        return result
+
+    def update_trailing_stop(self, ticket, symbol, new_sl):
+        return self.modify_stop_loss(ticket, new_sl, symbol)
