@@ -5,38 +5,27 @@ from datetime import datetime
 from loguru import logger
 import sys
 import os
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from mt5_interface import MT5Interface
 from data_preprocessing import *
 from trade import Trade
 from live_trading_config import get_timeframe_enum
-
-#using this strategy for testing!!
 from ES_2025_05_Statistical_Grid import StrategyTester
 
 logger.remove()
 logger.add(sys.stderr, level="INFO")
 
 # ---------------------------------------------
-# CONFIGURATION (set these variables externally)
+# CONFIGURATION
 # ---------------------------------------------
 symbol = "GBPNZD"
 timeframe_str = "M1"
-lot = 1
 magic = 44667732
-# parameters = strategy_params["Statistical_Grid"].copy()
-#get parameter set from the json!!!!! But could be deleted so creating a back up commented below: 39755a57-4ca5-46df-940a-c492c990e760
+
 statistical_grid_GBPNZD_H1_PO_BEST_MAX_DD = {
-    "active_trading_days": [
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday",
-        "Sunday"
-    ],
+    "active_trading_days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
     "trading_start_hh": 4,
     "trading_start_mm": 0,
     "trading_end_hh": 22,
@@ -58,7 +47,6 @@ statistical_grid_GBPNZD_H1_PO_BEST_MAX_DD = {
 
 parameters = statistical_grid_GBPNZD_H1_PO_BEST_MAX_DD.copy()
 
-
 # ---------------------------------------------
 # INITIALIZATION
 # ---------------------------------------------
@@ -67,7 +55,7 @@ mt5_int = MT5Interface(broker="icmarkets")
 logger.info(f"{symbol} pip value: {mt5_int.get_pip_value(symbol)}")
 parameters["pip_value"] = mt5_int.get_pip_value(symbol)
 account_info = mt5.account_info()
-symbol_info = mt5.symbol_info("GBPNZD")
+symbol_info = mt5.symbol_info(symbol)
 logger.info(symbol_info)
 if account_info:
     logger.info("Connected to MT5 account: {} (Equity: ${:.2f})", account_info.login, account_info.equity)
@@ -75,114 +63,81 @@ else:
     logger.warning("!!!! Unable to fetch account info. Proceeding anyway.")
 
 account_size = mt5_int.get_account_equity()
+timeframe = get_timeframe_enum(timeframe_str)
+
+logger.info("Event-driven live trading started for {} on timeframe {}", symbol, timeframe_str)
 
 # ---------------------------------------------
-# Supporting Functions
+# SUPPORTING FUNCTION
 # ---------------------------------------------
-
 def get_timeframe_str(timeframe):
     timeframe_mapping = {
         mt5.TIMEFRAME_M1: "M1",
-        mt5.TIMEFRAME_M2: "M2",
-        mt5.TIMEFRAME_M3: "M3",
-        mt5.TIMEFRAME_M4: "M4",
         mt5.TIMEFRAME_M5: "M5",
-        mt5.TIMEFRAME_M6: "M6",
-        mt5.TIMEFRAME_M10: "M10",
-        mt5.TIMEFRAME_M12: "M12",
         mt5.TIMEFRAME_M15: "M15",
-        mt5.TIMEFRAME_M20: "M20",
         mt5.TIMEFRAME_M30: "M30",
         mt5.TIMEFRAME_H1: "H1",
-        mt5.TIMEFRAME_H2: "H2",
-        mt5.TIMEFRAME_H3: "H3",
         mt5.TIMEFRAME_H4: "H4",
-        mt5.TIMEFRAME_H6: "H6",
-        mt5.TIMEFRAME_H8: "H8",
-        mt5.TIMEFRAME_H12: "H12",
         mt5.TIMEFRAME_D1: "D1",
         mt5.TIMEFRAME_W1: "W1",
         mt5.TIMEFRAME_MN1: "MN1"
     }
-
     return timeframe_mapping.get(timeframe, "UnknownTimeframe")
 
 # ---------------------------------------------
-# MAIN LOOP (BAR-CLOSING EXECUTION)
+# EVENT-DRIVEN MAIN LOOP
 # ---------------------------------------------
-timeframe = get_timeframe_enum(timeframe_str)
-last_candle = mt5_int.get_last_closed_candle(symbol=symbol, timeframe=timeframe)
-last_bar_time = None
-logger.info("Live trading started for {} on timeframe {}", symbol, timeframe_str)
+previous_minute = None
 
-def main_loop():
-    global last_bar_time
-    try:
-        # Existing logic to fetch rates and create dataframe
-        rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, 1000)
-        if rates is None or len(rates) == 0:
-            logger.warning("No rate data fetched. Retrying in 10s...")
-            std_time.sleep(10)
-            return
+def run_live_trading():
+    global previous_minute
+    while True:
+        tick = mt5.symbol_info_tick(symbol)
+        if not tick:
+            std_time.sleep(0.2)
+            continue
 
-        df = pd.DataFrame(rates)
-        df["time"] = pd.to_datetime(df["time"], unit="s")
-        df.set_index("time", inplace=True)
+        server_time = datetime.utcfromtimestamp(tick.time)
+        current_minute = server_time.replace(second=0, microsecond=0)
 
-        latest_time = df.index[-2]
-        if latest_time == last_bar_time:
-            std_time.sleep(5)
-            return
+        if current_minute != previous_minute:
+            previous_minute = current_minute
 
-        # Existing candle logging
-        latest_candle = df.iloc[-2]
-        logger.info(
-            "New Closed Candle - Time: {} | O: {:.5f} H: {:.5f} L: {:.5f} C: {:.5f} V: {}",
-            latest_time.strftime("%Y-%m-%d %H:%M"),
-            latest_candle["open"], latest_candle["high"],
-            latest_candle["low"], latest_candle["close"], int(latest_candle["tick_volume"])
-        )
+            rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, 1000)
+            if rates is None or len(rates) == 0:
+                logger.warning("No rate data fetched. Skipping this bar.")
+                continue
 
-        # Existing strategy initialization
-        strategy = StrategyTester(df.copy(), parameters, account_size=account_size)
+            df = pd.DataFrame(rates)
+            df["time"] = pd.to_datetime(df["time"], unit="s")
+            df.set_index("time", inplace=True)
 
-        # Fetch open positions
-        open_positions = mt5_int.get_open_positions(symbol=symbol, magic=magic)
+            latest_time = df.index[-2]
+            latest_candle = df.iloc[-2]
 
-        # Execute exits
-        strategy.get_exit_signal(latest_time)
+            logger.info(
+                "New Closed Candle - Time: {} | O: {:.5f} H: {:.5f} L: {:.5f} C: {:.5f} V: {}",
+                latest_time.strftime("%Y-%m-%d %H:%M"),
+                latest_candle["open"], latest_candle["high"],
+                latest_candle["low"], latest_candle["close"], int(latest_candle["tick_volume"])
+            )
 
-        # Handle entry signals
-        if not open_positions or parameters.get("multiple_positions", False):
-            signal, entry_time = strategy.get_entry_signal(latest_time)
-            if signal != 0:
-                direction = "buy" if signal == 1 else "sell"
+            strategy = StrategyTester(df.copy(), parameters, account_size=account_size)
+            open_positions = mt5_int.get_open_positions(symbol=symbol, magic=magic)
 
-                #Override position size for live trades:
-                live_lot = mt5_int.calculate_lot_size(symbol, parameters["sl"], account_size, parameters["risk_per_trade"])
-                logger.info("Live Entry Signal: {} at {} with calculated lot size: {}", direction.upper(), entry_time, live_lot)
+            strategy.get_exit_signal(latest_time)
 
-                # Submit order using live calculated lot size
-                mt5_int.submit_order(
-                    symbol=symbol,
-                    direction=direction,
-                    lot=live_lot,
-                    sl_pips=parameters["sl"],
-                    tp_pips=parameters["tp"],
-                    magic=magic
-                )
-            else:
-                logger.info("No valid signal on this bar.")
+            if not open_positions or parameters.get("multiple_positions", False):
+                signal, entry_time = strategy.get_entry_signal(latest_time)
+                if signal != 0:
+                    direction = "buy" if signal == 1 else "sell"
+                    live_lot = mt5_int.calculate_lot_size(symbol, parameters["sl"], account_size, parameters["risk_per_trade"])
+                    logger.info("Live Entry Signal: {} at {} with calculated lot size: {}", direction.upper(), entry_time, live_lot)
+                    mt5_int.submit_order(symbol, direction, live_lot, parameters["sl"], parameters["tp"], magic)
+                else:
+                    logger.info("No valid signal on this bar.")
 
-        last_bar_time = latest_time
-        std_time.sleep(10)
-
-    except Exception as e:
-        logger.exception("Exception in live loop: {}", e)
-        std_time.sleep(10)
-
-
+        std_time.sleep(0.2)
 
 if __name__ == "__main__":
-    while True:
-        main_loop()
+    run_live_trading()
