@@ -37,9 +37,9 @@ statistical_grid_GBPNZD_H1_PO_BEST_MAX_DD = {
         "Saturday",
         "Sunday"
     ],
-    "trading_start_hh": 0,
+    "trading_start_hh": 4,
     "trading_start_mm": 0,
-    "trading_end_hh": 23,
+    "trading_end_hh": 22,
     "trading_end_mm": 59,
     "grid_sma_value": 22,
     "grid_std_multiplier": 1.7000000000000004,
