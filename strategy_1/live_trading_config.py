@@ -1,6 +1,6 @@
 import numpy as np
-from Quant_Backend.data_preprocessing import *
-from Quant_Backend.mt5_interface import *
+from data_preprocessing import *
+from mt5_interface import *
 from joblib import load
 
 
