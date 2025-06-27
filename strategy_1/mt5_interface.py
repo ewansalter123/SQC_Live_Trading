@@ -120,19 +120,11 @@ class MT5Interface:
             logger.error(f"{symbol} is not tradeable (trade_mode={info.trade_mode})")
             return None
 
-        # ---------------------------------------------
-        # Fetch broker-defined min stop distance
         min_stop_distance = info.trade_stops_level * info.point
-
-        # Calculate intended SL/TP prices
         sl_price, tp_price = self.calculate_sl_tp_prices(symbol, direction, price, sl_pips, tp_pips)
 
-        # Validate SL/TP distances
         if abs(price - sl_price) < min_stop_distance or abs(price - tp_price) < min_stop_distance:
-            logger.warning(
-                f"SL/TP too close to price. Broker min distance: {min_stop_distance:.5f}. Adjusting..."
-            )
-            # Example: Auto-widen SL/TP to broker min distance
+            logger.warning(f"SL/TP too close to price. Broker min distance: {min_stop_distance:.5f}. Adjusting...")
             if direction == "buy":
                 sl_price = price - min_stop_distance
                 tp_price = price + min_stop_distance
@@ -171,17 +163,13 @@ class MT5Interface:
                 logger.warning("order_check returned None for fill_mode={}", fill_mode)
                 continue
 
-            logger.info("order_check for fill_mode={} → retcode={} | comment='{}'",
-                        fill_mode, check.retcode, check.comment)
+            logger.info("order_check for fill_mode={} → retcode={} | comment='{}'", fill_mode, check.retcode,
+                        check.comment)
 
             if check.retcode in (0, mt5.TRADE_RETCODE_DONE):
                 logger.success("Filling mode {} accepted — sending trade...", fill_mode)
                 result = mt5.order_send(request)
-                if result is not None and result.retcode == mt5.TRADE_RETCODE_DONE:
-                    logger.success("✅ Trade executed: {} {} @ {:.5f} | SL: {:.5f}, TP: {:.5f}",
-                                   symbol, direction.upper(), result.price, sl_price, tp_price)
-                else:
-                    logger.error("Trade failed: {} | Req: {}", result.comment if result else "Unknown", request)
+                self.log_order_result(result, request)
                 return result
 
         logger.error("All filling modes failed for {} — no order sent", symbol)
@@ -195,10 +183,12 @@ class MT5Interface:
         if result.retcode != mt5.TRADE_RETCODE_DONE:
             logger.error("Trade failed: {} | Req: {}", result.comment, request)
         else:
-            logger.success("Trade executed: {} {} @ {:.5f} | SL: {:.5f}, TP: {:.5f}",
-                           request["symbol"],
-                           "BUY" if request["type"] == mt5.ORDER_TYPE_BUY else "SELL",
-                           request["price"], request["sl"], request["tp"])
+            logger.success(
+                "✅ Trade executed: {} {} @ {:.5f} | SL: {:.5f}, TP: {:.5f}",
+                request["symbol"],
+                "BUY" if request["type"] == mt5.ORDER_TYPE_BUY else "SELL",
+                result.price, request["sl"], request["tp"]
+            )
 
     def modify_stop_loss(self, ticket, new_sl, symbol):
         request = {
