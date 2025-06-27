@@ -9,8 +9,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 logger.remove()
 logger.add(sys.stderr, level="INFO")
 
-from Quant_Backend.backtest_config import get_pip_value
-
 # Define known terminal paths (customize as needed)
 MT5_PATHS = {
     "metaquotes": r"C:\\Program Files\\MetaTrader 5\\terminal64.exe",
