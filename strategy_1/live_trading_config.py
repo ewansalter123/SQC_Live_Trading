@@ -18,7 +18,6 @@ def get_timeframe_enum(timeframe_str):
     }
     return mapping.get(timeframe_str, None)
 
-
 def move_to_break_even(position, break_even_pips, point):
     """
     Adjust the stop-loss to the entry price (break-even) for a position that has reached a certain profit threshold.
