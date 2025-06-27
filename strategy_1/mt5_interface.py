@@ -123,7 +123,7 @@ class MT5Interface:
             sl_pips = max(sl_pips, MIN_SAFE_PIPS)
             tp_pips = max(tp_pips, MIN_SAFE_PIPS)
 
-        pip_value = get_pip_value(symbol)
+        pip_value = self.get_pip_value(symbol)
         sl_price, tp_price = self.calculate_sl_tp_prices(symbol, direction, price, sl_pips, tp_pips)
 
         logger.info(
