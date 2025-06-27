@@ -56,13 +56,20 @@ class MT5Interface:
         return account.equity if account else None
 
     def calculate_sl_tp_prices(self, symbol, direction, entry_price, sl_pips, tp_pips):
-        pip_value = self.get_pip_value(symbol)
+        info = mt5.symbol_info(symbol)
+        if not info:
+            logger.error(f"Failed to retrieve symbol info for {symbol}")
+            return entry_price, entry_price  # Fallback to prevent crashing
+
+        pip_size = info.point * 10  # 0.0001 for most FX pairs, 0.01 for Yen pairs
+
         if direction == "buy":
-            sl_price = entry_price - sl_pips * pip_value
-            tp_price = entry_price + tp_pips * pip_value
+            sl_price = entry_price - sl_pips * pip_size
+            tp_price = entry_price + tp_pips * pip_size
         else:
-            sl_price = entry_price + sl_pips * pip_value
-            tp_price = entry_price - tp_pips * pip_value
+            sl_price = entry_price + sl_pips * pip_size
+            tp_price = entry_price - tp_pips * pip_size
+
         return sl_price, tp_price
 
     def get_pip_value(self, symbol: str) -> float:
