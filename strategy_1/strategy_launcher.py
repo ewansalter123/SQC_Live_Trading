@@ -67,6 +67,8 @@ mt5_int = MT5Interface(broker="icmarkets")
 logger.info(f"{symbol} pip value: {mt5_int.get_pip_value(symbol)}")
 parameters["pip_value"] = mt5_int.get_pip_value(symbol)
 account_info = mt5.account_info()
+symbol_info = mt5.symbol_info("GBPNZD")
+logger.info(symbol_info)
 if account_info:
     logger.info("Connected to MT5 account: {} (Equity: ${:.2f})", account_info.login, account_info.equity)
 else:
@@ -77,35 +79,6 @@ account_size = mt5_int.get_account_equity()
 # ---------------------------------------------
 # Supporting Functions
 # ---------------------------------------------
-def safe_live_lot(params, account_size, sl_pips, pip_value, symbol):
-    info = mt5.symbol_info(symbol)
-    min_lot = info.volume_min if info else 0.01
-    max_lot = info.volume_max if info else 100
-    step = info.volume_step if info else 0.01
-
-    # Standard risk-based calculation
-    mode = params.get("lot_sizing_mode", "fixed_lot")
-    if mode == "fixed_lot":
-        preferred_lot = params.get("fixed_lot", min_lot)
-    elif mode == "percent_equity":
-        risk_per_trade = account_size * params["risk_per_trade"]
-        preferred_lot = risk_per_trade / (sl_pips * pip_value * 10)
-    elif mode == "cash_risk":
-        risk_per_trade = params["cash_risk"]
-        preferred_lot = risk_per_trade / (sl_pips * pip_value * 10)
-    else:
-        raise ValueError("Invalid lot sizing mode")
-
-    # Snap to step, cap at broker max/min
-    lot = round(max(min_lot, min(max_lot, round(preferred_lot / step) * step)), 2)
-
-    # Logging for transparency
-    if preferred_lot > max_lot:
-        logger.warning(f"Risk calculation lot ({preferred_lot:.2f}) exceeds broker max ({max_lot}). Using max allowed lot: {max_lot}")
-    if preferred_lot < min_lot:
-        logger.warning(f"Risk calculation lot ({preferred_lot:.2f}) below broker min ({min_lot}). Using min allowed lot: {min_lot}")
-
-    return lot
 
 def get_timeframe_str(timeframe):
     timeframe_mapping = {
@@ -186,7 +159,7 @@ def main_loop():
                 direction = "buy" if signal == 1 else "sell"
 
                 #Override position size for live trades:
-                live_lot = safe_live_lot(parameters, account_size, parameters["sl"], get_pip_value(symbol), symbol)
+                live_lot = mt5_int.calculate_lot_size(symbol, parameters["sl"], account_size, parameters["risk_per_trade"])
                 logger.info("Live Entry Signal: {} at {} with calculated lot size: {}", direction.upper(), entry_time, live_lot)
 
                 # Submit order using live calculated lot size
