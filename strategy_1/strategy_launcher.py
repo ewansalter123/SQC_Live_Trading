@@ -10,7 +10,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from mt5_interface import MT5Interface
 from data_preprocessing import *
 from trade import Trade
-# from Quant_Backend.backtest import Backtest
 from live_trading_config import get_timeframe_enum
 
 #using this strategy for testing!!
@@ -58,6 +57,7 @@ statistical_grid_GBPNZD_H1_PO_BEST_MAX_DD = {
     "strategy": "Statistical_Grid",
     "asset": "GBPNZD"
 }
+
 parameters = statistical_grid_GBPNZD_H1_PO_BEST_MAX_DD.copy()
 
 
