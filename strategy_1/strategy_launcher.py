@@ -22,7 +22,7 @@ logger.add(sys.stderr, level="INFO")
 # CONFIGURATION (set these variables externally)
 # ---------------------------------------------
 symbol = "GBPNZD"
-timeframe_str = "M1"
+timeframe_str = "H1"
 lot = 1
 magic = 8989891
 # parameters = strategy_params["Statistical_Grid"].copy()
@@ -42,7 +42,7 @@ statistical_grid_GBPNZD_H1_PO_BEST_MAX_DD = {
     "trading_end_hh": 22,
     "trading_end_mm": 59,
     "grid_sma_value": 22,
-    "grid_std_multiplier": 1.7000000000000004,
+    "grid_std_multiplier": 1.7,
     "tp": 75,
     "sl": 50,
     "break_even_pips": 1000000,
@@ -52,10 +52,8 @@ statistical_grid_GBPNZD_H1_PO_BEST_MAX_DD = {
     "risk_per_trade": 0.005,
     "multiple_positions": True,
     "lot_sizing_mode": "percent_equity",
-    "symbol": "GBPNZD",
     "timeframe": "H1",
     "strategy": "Statistical_Grid",
-    "asset": "GBPNZD"
 }
 
 parameters = statistical_grid_GBPNZD_H1_PO_BEST_MAX_DD.copy()
@@ -67,7 +65,7 @@ parameters = statistical_grid_GBPNZD_H1_PO_BEST_MAX_DD.copy()
 mt5_int = MT5Interface(broker="icmarkets")
 
 logger.info(f"{symbol} pip value: {mt5_int.get_pip_value(symbol)}")
-
+parameters["pip_value"] = mt5_int.get_pip_value(symbol)
 account_info = mt5.account_info()
 if account_info:
     logger.info("Connected to MT5 account: {} (Equity: ${:.2f})", account_info.login, account_info.equity)
