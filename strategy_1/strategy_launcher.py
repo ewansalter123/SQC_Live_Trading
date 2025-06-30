@@ -22,7 +22,7 @@ logger.add(sys.stderr, level="INFO")
 # ---------------------------------------------
 symbol = "GBPNZD"
 timeframe_str = "H1"
-magic = 77665544321
+magic = 776655432166
 
 statistical_grid_GBPNZD_H1_PO_BEST_MAX_DD = {
     "active_trading_days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
