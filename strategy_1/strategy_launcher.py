@@ -97,22 +97,21 @@ def run_live_trading():
             std_time.sleep(0.2)
             continue
 
-        server_time = datetime.utcfromtimestamp(tick.time)
-        current_minute = server_time.replace(second=0, microsecond=0)
+        rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, 1000)
+        if rates is None or len(rates) == 0:
+            logger.warning("No rate data fetched. Skipping this bar.")
+            std_time.sleep(0.2)
+            continue
 
-        if current_minute != previous_minute:
-            previous_minute = current_minute
+        df = pd.DataFrame(rates)
+        df["time"] = pd.to_datetime(df["time"], unit="s")
+        df.set_index("time", inplace=True)
 
-            rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, 1000)
-            if rates is None or len(rates) == 0:
-                logger.warning("No rate data fetched. Skipping this bar.")
-                continue
+        latest_time = df.index[-2]  # Last fully closed bar
 
-            df = pd.DataFrame(rates)
-            df["time"] = pd.to_datetime(df["time"], unit="s")
-            df.set_index("time", inplace=True)
+        if latest_time != previous_minute:
+            previous_minute = latest_time
 
-            latest_time = df.index[-2]
             latest_candle = df.iloc[-2]
 
             logger.info(
@@ -136,6 +135,8 @@ def run_live_trading():
                     mt5_int.submit_order(symbol, direction, live_lot, parameters["sl"], parameters["tp"], magic)
                 else:
                     logger.info("No valid signal on this bar.")
+
+        # logger.info(f"Fetched {len(df)} bars | Timeframe: {get_timeframe_str(timeframe)} | Latest bar: {df.index[-1]}")
 
         std_time.sleep(0.2)
 
