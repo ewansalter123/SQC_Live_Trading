@@ -17,7 +17,7 @@ mt5_int = MT5Interface(broker="icmarkets")
 
 # === CONFIGURATION ===
 symbol = "GBPNZD"               # Symbol being traded
-magic = 77665544321             # Your strategy's unique magic number
+magic = 776655432166             # Your strategy's unique magic number
 refresh_interval = 30           # Seconds between updates
 
 def display_status():
